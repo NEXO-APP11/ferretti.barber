@@ -1,0 +1,88 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELED
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Client {
+  id          String        @id @default(cuid())
+  name        String
+  phone       String
+  email       String?
+  notes       String?
+  active      Boolean       @default(true)
+  appointments Appointment[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([name])
+  @@index([phone])
+}
+
+model Service {
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  price        Decimal       @db.Decimal(10, 2)
+  duration     Int
+  active       Boolean       @default(true)
+  appointments Appointment[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Appointment {
+  id         String            @id @default(cuid())
+  clientId   String
+  serviceId  String
+  startAt    DateTime
+  endAt      DateTime
+  status     AppointmentStatus @default(PENDING)
+  source     String            @default("whatsapp")
+  notes      String?
+  client     Client            @relation(fields: [clientId], references: [id])
+  service    Service           @relation(fields: [serviceId], references: [id])
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([startAt])
+  @@index([status])
+}
+
+model BusinessSettings {
+  id            String   @id @default("main")
+  name          String   @default("FERRETTI BARBER")
+  whatsapp      String   @default("")
+  address       String?
+  instagram     String?
+  openingTime   String   @default("09:00")
+  closingTime   String   @default("19:00")
+  workingDays   Int[]    @default([1, 2, 3, 4, 5, 6])
+  slotMinutes   Int      @default(30)
+  updatedAt     DateTime @updatedAt
+}

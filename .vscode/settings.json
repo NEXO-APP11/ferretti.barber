@@ -1,0 +1,8 @@
+{
+  "chat.tools.terminal.autoApprove": {
+    "/^Set-Location 'C:\\\\Users\\\\lukas_ferretti\\\\Documents\\\\GitHub\\\\ferretti\\.barber\\\\frontend'; npx --yes create-vite@latest --help$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CalendarDays, Camera, MapPin, Menu, Scissors, Phone, X, ArrowRight, Clock3 } from 'lucide-react'
 import './App.css'
@@ -7,6 +7,20 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 type Service = { id: string; name: string; description?: string; price: number; duration: number }
 type Settings = { name: string; whatsapp?: string; address?: string; instagram?: string }
+type AvailabilityResponse = { slots: string[] }
+type AvailabilityState = { query: string; slots: string[] }
+type AppointmentSummary = {
+  id: string
+  startAt: string
+  client: { name: string }
+  service: { name: string }
+}
+type DashboardData = {
+  todayAppointments: number
+  totalClients: number
+  revenue: number
+  nextAppointments: AppointmentSummary[]
+}
 
 const fallbackServices: Service[] = [
   { id: 'fallback-corte', name: 'Corte masculino', description: 'Corte técnico, acabamento preciso e finalização personalizada.', price: 0, duration: 30 },
@@ -30,10 +44,13 @@ function PublicSite() {
   const [settings, setSettings] = useState<Settings>({ name: 'FERRETTI BARBER' })
   const [menuOpen, setMenuOpen] = useState(false)
   const [bookingOpen, setBookingOpen] = useState(false)
-  const [slots, setSlots] = useState<string[]>([])
-  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [availability, setAvailability] = useState<AvailabilityState | null>(null)
   const [form, setForm] = useState({ name: '', phone: '', serviceId: '', date: '', startAt: '' })
   const [message, setMessage] = useState('')
+  const availabilityQuery = form.date && form.serviceId ? `${form.date}:${form.serviceId}` : ''
+  const currentAvailability = availability?.query === availabilityQuery ? availability : null
+  const slots = currentAvailability?.slots ?? []
+  const loadingSlots = Boolean(availabilityQuery && !currentAvailability)
 
   useEffect(() => {
     Promise.all([
@@ -46,13 +63,18 @@ function PublicSite() {
   }, [])
 
   useEffect(() => {
-    if (!form.date || !form.serviceId) return setSlots([])
-    setLoadingSlots(true)
+    if (!form.date || !form.serviceId) return
+    let cancelled = false
+    const query = `${form.date}:${form.serviceId}`
     fetch(`${API_URL}/public/availability?date=${form.date}&serviceId=${form.serviceId}`)
-      .then((r) => r.ok ? r.json() : { slots: [] })
-      .then((data) => setSlots(data.slots || []))
-      .catch(() => setSlots([]))
-      .finally(() => setLoadingSlots(false))
+      .then((response) => response.ok ? response.json() as Promise<AvailabilityResponse> : { slots: [] })
+      .then((data) => {
+        if (!cancelled) setAvailability({ query, slots: data.slots || [] })
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability({ query, slots: [] })
+      })
+    return () => { cancelled = true }
   }, [form.date, form.serviceId])
 
   const submitBooking = async (event: FormEvent) => {
@@ -170,11 +192,19 @@ function Admin() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [dashboard, setDashboard] = useState<any>(null)
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
 
-  const authFetch = (path: string, options: RequestInit = {}) => fetch(`${API_URL}${path}`, { ...options, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...options.headers } })
+  const authFetch = useCallback((path: string, options: RequestInit = {}) => fetch(`${API_URL}${path}`, { ...options, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...options.headers } }), [token])
 
-  useEffect(() => { if (token) authFetch('/dashboard').then((r) => r.ok ? r.json() : null).then(setDashboard) }, [token])
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    authFetch('/dashboard')
+      .then((response) => response.ok ? response.json() as Promise<DashboardData> : null)
+      .then((data) => { if (!cancelled) setDashboard(data) })
+      .catch(() => { if (!cancelled) setDashboard(null) })
+    return () => { cancelled = true }
+  }, [token, authFetch])
 
   const login = async (event: FormEvent) => {
     event.preventDefault(); setError('')
@@ -186,7 +216,7 @@ function Admin() {
 
   if (!token) return <main className="login-page"><form className="login-card" onSubmit={login}><div className="login-logo"><Scissors/> FERRETTI BARBER</div><p>Acesso administrativo</p><label>E-mail<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}/></label><label>Senha<input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}/></label>{error && <p className="form-message">{error}</p>}<button className="primary-button full">Entrar</button></form></main>
 
-  return <main className="admin-layout"><aside><div className="admin-brand"><Scissors/> FERRETTI</div><nav><button className="active">Dashboard</button><button onClick={() => window.location.hash = ''}>Ver site</button></nav><button className="logout" onClick={() => { localStorage.removeItem('ferretti_token'); setToken('') }}>Sair</button></aside><section className="admin-content"><header><p>Painel administrativo</p><h1>Dashboard</h1></header><div className="stat-grid"><article><span>Agendamentos hoje</span><strong>{dashboard?.todayAppointments ?? '—'}</strong></article><article><span>Clientes ativos</span><strong>{dashboard?.totalClients ?? '—'}</strong></article><article><span>Receita concluída</span><strong>{dashboard ? dashboard.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</strong></article></div><div className="admin-panel"><h2>Próximos agendamentos</h2>{dashboard?.nextAppointments?.length ? dashboard.nextAppointments.map((item: any) => <div className="appointment-row" key={item.id}><strong>{item.client.name}</strong><span>{item.service.name}</span><time>{new Date(item.startAt).toLocaleString('pt-BR')}</time></div>) : <p className="empty">Nenhum agendamento próximo.</p>}</div></section></main>
+  return <main className="admin-layout"><aside><div className="admin-brand"><Scissors/> FERRETTI</div><nav><button className="active">Dashboard</button><button onClick={() => window.location.hash = ''}>Ver site</button></nav><button className="logout" onClick={() => { localStorage.removeItem('ferretti_token'); setToken('') }}>Sair</button></aside><section className="admin-content"><header><p>Painel administrativo</p><h1>Dashboard</h1></header><div className="stat-grid"><article><span>Agendamentos hoje</span><strong>{dashboard?.todayAppointments ?? '—'}</strong></article><article><span>Clientes ativos</span><strong>{dashboard?.totalClients ?? '—'}</strong></article><article><span>Receita concluída</span><strong>{dashboard ? dashboard.revenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</strong></article></div><div className="admin-panel"><h2>Próximos agendamentos</h2>{dashboard?.nextAppointments?.length ? dashboard.nextAppointments.map((item) => <div className="appointment-row" key={item.id}><strong>{item.client.name}</strong><span>{item.service.name}</span><time>{new Date(item.startAt).toLocaleString('pt-BR')}</time></div>) : <p className="empty">Nenhum agendamento próximo.</p>}</div></section></main>
 }
 
 export default function App() {
